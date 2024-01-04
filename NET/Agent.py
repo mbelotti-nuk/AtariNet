@@ -15,9 +15,9 @@ import os
 
 # This class trains and plays on the actual game
 class Agent(object):
-    def __init__(self, replace_target_cnt, state_space, action_space, 
+    def __init__(self, state_space, action_space, 
                 model_name='breakout_model', number_frames = 4, gamma=0.99, eps_strt=0.1, 
-                eps_min=0.1, eps_dec=5e-6, batch_size=64, lr=0.001):
+                eps_min=0.1, eps_dec=5e-6, batch_size=32, lr=0.001):
 
         # number of frames to be fed to the network
         self.number_frames = number_frames
@@ -27,7 +27,8 @@ class Agent(object):
         self.action_space = action_space
         # batch size for training the network
         self.batch_size = batch_size
-        self.sync_network_rate = 10000
+         # After how many training iterations the target network should update
+        self.sync_network_rate = 3000
 
 
         self.GAMMA = gamma
@@ -38,7 +39,7 @@ class Agent(object):
         self.eps_dec = eps_dec
         self.eps_min = eps_min
         self.learn_step_counter = 0
-        self.save_interval = 5000
+        self.save_interval = 2000
 
 
         # Use GPU if available
@@ -47,14 +48,13 @@ class Agent(object):
         # Initialise Replay Memory
         self.memory = ReplayBuffer()
 
-        # After how many training iterations the target network should update
-        self.replace_target_cnt = replace_target_cnt
+       
         self.learn_counter = 0
 
         # Initialise policy and target networks, set target network to eval mode
-        self.policy_net = ATARInet(input_dim=self.state_space, output_dim=self.action_space, filename=model_name).to(self.device)
+        self.policy_net = ATARInet(input_dim=self.state_space, out_dim=self.action_space, filename=model_name).to(self.device)
         print(self.policy_net)
-        self.target_net = ATARInet(input_dim=self.state_space, output_dim=self.action_space, filename=model_name+'target').to(self.device)
+        self.target_net = ATARInet(input_dim=self.state_space, out_dim=self.action_space, filename=model_name+'target').to(self.device)
         self.target_net.eval()
 
         # If pretrained model of the modelname already exists, load it
@@ -105,18 +105,20 @@ class Agent(object):
     def greedy_action(self, obs):
         obs = torch.tensor(obs).float().to(self.device)
         obs = obs.unsqueeze(0)
-        #print(f"observation {obs.shape}")
         action = self.policy_net(obs).argmax().item()
         return action
 
     # Returns an action based on epsilon greedy method
-    def choose_action(self, obs):
-        # return random action
-        if random.random() > self.eps:
-            action = self.greedy_action(obs)
-        # choose action from model 
+    def choose_action(self, obs, train=True):
+        if train:
+            # choose action from model 
+            if random.random() > self.eps:
+                action = self.greedy_action(obs)
+            # return random action 
+            else:
+                action = random.choice([x for x in range(self.action_space)])
         else:
-            action = random.choice([x for x in range(self.action_space)])
+            action = self.greedy_action(obs)
         return action
     
     # Stores a transition into memory
@@ -146,13 +148,13 @@ class Agent(object):
             
         # Using q_next and reward, calculate q_target
         # (1-done) ensures q_target is 0 if transition is in a terminating state
-        q_target = (1-done) * (reward + self.GAMMA * q_next) #+ (done * reward)
+        q_target = (1-done) * (reward + self.GAMMA * q_next) + (done * reward)
 
         # Compute the loss
         loss = self.loss(q_eval, q_target).to(self.device)
 
         # Perform backward propagation and optimization step
-        #self.optim.zero_grad()
+        self.optim.zero_grad()
         loss.backward()
         self.optim.step()
 
@@ -167,7 +169,6 @@ class Agent(object):
             self.policy_net.save_model()
 
         self.learn_step_counter += 1
-        self.dec_eps()
 
     # Save gif of an episode starting num_transitions ago from memory
     def save_gif(self, num_transitions):

@@ -5,30 +5,31 @@ import numpy as np
 
 # This class defines the DQN network structure
 class ATARInet(nn.Module):
-    def __init__(self, input_dim, output_dim, filename, n_frames=4):
+    def __init__(self, input_dim, out_dim, filename, n_frames=4):
         super(ATARInet, self).__init__()
         self.input_dim = [ input_dim[0], input_dim[1], input_dim[2] ] 
-        #channels, _, _ = input_dim
         channels = n_frames
         self.input_dim[0] = channels
 
         # 3 conv layers, all with relu activations, first one with maxpool
         self.l1 = nn.Sequential(
-            nn.Conv2d(channels, 16, kernel_size=8, stride=4, padding=2),
+            nn.Conv2d(channels, 32, kernel_size=8, stride=4, padding=2),
             nn.ReLU(),
-            nn.Conv2d(16, 32, kernel_size=4, stride=2, padding=1),
+            nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=1),
             nn.ReLU(),
+            torch.nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0),
+            nn.ReLU()
         )
 
         # Calculate output dimensions for linear layer
-        conv_output_size = self.conv_output_dim()
-        lin1_output_size = 512
+        conv_out_dim = self.conv_output_dim()
+        lin1_out_dim = 512
 
         # Two fully connected layers with one relu activation
         self.l2 = nn.Sequential(
-            nn.Linear(conv_output_size, lin1_output_size),
+            nn.Linear(conv_out_dim, lin1_out_dim),
             nn.ReLU(),
-            nn.Linear(lin1_output_size, output_dim)
+            nn.Linear(lin1_out_dim, out_dim)
         )
 
         # Save filename for saving model

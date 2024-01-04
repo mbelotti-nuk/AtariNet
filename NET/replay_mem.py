@@ -8,7 +8,7 @@ transition = namedtuple('transition', ("state", "action", "reward", "next_state"
 # Memory which allows for storing and sampling batches of transitions
 class ReplayBuffer(object):
     def __init__(self, size=1e6):
-        self.replay_memory_size = 100_000
+        self.replay_memory_size = 200_000
         self.buffer = deque(maxlen=self.replay_memory_size)
         self.max_size = size
 
