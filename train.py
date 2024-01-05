@@ -11,15 +11,19 @@ import matplotlib.pyplot as plt
 
 # Specify environment location
 env_name = 'ALE/Breakout-v5'
-NUM_EPISODES = 45_000 
+NUM_EPISODES = 20_000 
 DISPLAY = False
-LR = 1E-4
+LR = 5E-5
 N_FRAMES = 4
 SKIP_ACTIONS = 4
-EPS_STRT = 1
-EPS_MIN = .1
+
+# EPSILON
+EPS_STRT = .1 #1
+EPS_MIN = .05
 EPS_DEC = 0.99992
-MIN_EPISODES_TO_LEARN = 5
+
+# TRAINING
+MIN_EPISODES_TO_LEARN = 100
 UPDATE_FRAME_COUNT = 4
 
 # Initialize Gym Environment
@@ -114,11 +118,13 @@ for i in range(NUM_EPISODES):
     if score > max_score:
         max_score = score
 
+    mean_score = np.mean(scores[-100:])
+
     scores.append(score)
-    print(f'Episode {i}: \n\tScore: {score}\n\tAvg score (past 100): {np.mean(scores[-100:])}\
+    print(f'Episode {i}: \n\tScore: {score}\n\tAvg score (past 100): {mean_score}\
                 \n\tEpsilon: {agent.eps}\n')
 
-    if score > 40:
+    if mean_score > 50:
         agent.policy_net.save_model()
         print("FINISHED")
         break
