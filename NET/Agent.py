@@ -69,7 +69,7 @@ class Agent(object):
 
         # Set optimizer & loss function
         self.optim = torch.optim.Adam(self.policy_net.parameters(), lr=self.LR)
-        self.loss = torch.nn.SmoothL1Loss()
+        self.loss = torch.nn.HuberLoss() #torch.nn.SmoothL1Loss()
 
     def plot_results(self, scores, save_path=None):
         plt.plot(np.arange(1, len(scores)+1), scores, label = "Scores per game", color="blue")
@@ -103,6 +103,7 @@ class Agent(object):
 
     # Returns the greedy action according to the policy net
     def greedy_action(self, obs):
+        obs = np.stack(list(obs), axis=0)
         obs = torch.tensor(obs).float().to(self.device)
         obs = obs.unsqueeze(0)
         action = self.policy_net(obs).argmax().item()

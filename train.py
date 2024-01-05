@@ -6,24 +6,27 @@ from NET.transforms import Transforms
 import numpy as np
 import gc
 import torch
+from collections import deque
+import matplotlib.pyplot as plt
 
 # Specify environment location
 env_name = 'ALE/Breakout-v5'
-NUM_EPISODES = 40_000 
+NUM_EPISODES = 45_000 
 DISPLAY = False
 LR = 1E-4
 N_FRAMES = 4
+SKIP_ACTIONS = 4
 EPS_STRT = 1
 EPS_MIN = .1
 EPS_DEC = 0.99992
-MIN_EPISODES_TO_LEARN = 2
+MIN_EPISODES_TO_LEARN = 5
 UPDATE_FRAME_COUNT = 4
 
 # Initialize Gym Environment
 env =gym.make( 'ALE/Breakout-v5',render_mode='human' if DISPLAY else 'rgb_array' )
 
 # Create an agent
-agent = Agent(state_space=(4,84,84), action_space=4, model_name='32x64x64_breakout_model', gamma=.9,
+agent = Agent(state_space=(4,84,84), action_space=4, model_name='32x64x64_breakout_model', gamma=.99,
                 eps_strt=EPS_STRT, eps_min=EPS_MIN , eps_dec=EPS_DEC, batch_size=32, lr=LR, number_frames=N_FRAMES)
 
 
@@ -42,9 +45,10 @@ for i in range(NUM_EPISODES):
     done = False
 
     # Reset environment and preprocess state
-    state, _  = env.reset()
-    state = Transforms.to_gray(state[0])
-    state = np.stack([state[0]]*N_FRAMES)
+    obs, _  = env.reset()
+    state = Transforms.to_gray(obs[0])
+    state = deque( [state[0]]*N_FRAMES, maxlen=N_FRAMES )
+
 
     n_lifes = 5
     score = 0
@@ -54,24 +58,30 @@ for i in range(NUM_EPISODES):
         # Take epsilon greedy action
         action = agent.choose_action(state)
 
-        # apply action for N_FRAMES consecutive frames
-        action_reward = 0
         new_state = []
         new_observations = []
+        observations = []
+        action_reward = 0
 
-        # take N_FRAMES consecutive actions
-        for f in range(N_FRAMES):
+        # take next actions: the number of consecutive actions is qeual to SKIP_ACTIONS
+        # check: https://danieltakeshi.github.io/2016/11/25/frame-skipping-and-preprocessing-for-deep-q-networks-on-atari-2600-games/
+        obs_stack = deque(maxlen=2)
+        obs_stack.append(obs[0])
+        for k in range(SKIP_ACTIONS):
             obs_, reward, done, trunc, info = env.step(action)
-            state_ = Transforms.to_gray(obs_)
             action_reward += reward
-            new_state.append(state_)
-            #new_observations.append(obs_)
-            if done:
-                for f_i in range(f+1,N_FRAMES):
-                    new_state.append(np.copy(state_))
-                    #new_observations.append(np.copy(obs_))
-                break 
-        new_state = np.stack(new_state,axis=1).squeeze(0)
+            obs_stack.append(obs_)
+            if done: break
+
+        # blur last two frames
+        obs_ = np.maximum(*list(obs_stack))
+        # transform the observation
+        state_ = Transforms.to_gray(obs_).squeeze(0)
+
+        # next state
+        new_state = state.copy()
+        # append the last observation, skipping n=SKIP_ACTIONS that were before
+        new_state.append(state_)
 
         # update reward when losing game
         if info['lives'] < n_lifes:
@@ -85,16 +95,18 @@ for i in range(NUM_EPISODES):
             
 
         # Preprocess next state and store transition
-        agent.store_transition(state, action, action_reward, new_state, int(done), new_observations) #np.stack(new_observations,axis=1))
+        agent.store_transition(state, action, action_reward, new_state, int(done), new_observations) 
 
         # train agent
         if (i > MIN_EPISODES_TO_LEARN) and (frame_count % UPDATE_FRAME_COUNT == 0):
+            #for n_ in range(4):
             agent.learn(num_game=i)
 
         score += action_reward
-        frame_count = frame_count + 1 if frame_count <= UPDATE_FRAME_COUNT else 0
+        frame_count = frame_count + 1
         state = new_state
         n_lifes = info['lives'] 
+
 
     # decrease epsilon greedy
     agent.dec_eps()
@@ -102,13 +114,14 @@ for i in range(NUM_EPISODES):
     if score > max_score:
         max_score = score
 
-    # # Save a gif if episode is best so far
-    # if score > 50 and score >= max_score:
-    #      agent.save_gif(cnt)
-
     scores.append(score)
     print(f'Episode {i}: \n\tScore: {score}\n\tAvg score (past 100): {np.mean(scores[-100:])}\
                 \n\tEpsilon: {agent.eps}\n')
+
+    if score > 40:
+        agent.policy_net.save_model()
+        print("FINISHED")
+        break
             
 
 print("save model")
