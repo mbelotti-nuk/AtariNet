@@ -69,7 +69,7 @@ class Agent(object):
 
         # Set optimizer & loss function
         self.optim = torch.optim.Adam(self.policy_net.parameters(), lr=self.LR)
-        self.loss = torch.nn.HuberLoss() #torch.nn.SmoothL1Loss()
+        self.loss = torch.nn.SmoothL1Loss() #torch.nn.HuberLoss() #torch.nn.SmoothL1Loss()
 
     def plot_results(self, scores, save_path=None):
         plt.plot(np.arange(1, len(scores)+1), scores, label = "Scores per game", color="blue")
@@ -149,7 +149,8 @@ class Agent(object):
             
         # Using q_next and reward, calculate q_target
         # (1-done) ensures q_target is 0 if transition is in a terminating state
-        q_target = (1-done) * (reward + self.GAMMA * q_next) + (done * reward)
+        with torch.no_grad():
+            q_target = (1-done) * (reward + self.GAMMA * q_next) + (done * reward)
 
         # Compute the loss
         loss = self.loss(q_eval, q_target).to(self.device)

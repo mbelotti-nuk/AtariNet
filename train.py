@@ -11,19 +11,19 @@ import matplotlib.pyplot as plt
 
 # Specify environment location
 env_name = 'ALE/Breakout-v5'
-NUM_EPISODES = 20_000 
+NUM_EPISODES = 100_000 
 DISPLAY = False
-LR = 5E-5
+LR = 2E-5
 N_FRAMES = 4
 SKIP_ACTIONS = 4
 
 # EPSILON
-EPS_STRT = .1 #1
-EPS_MIN = .05
-EPS_DEC = 0.99992
+EPS_STRT = 1
+EPS_MIN = .01
+EPS_DEC = 0.99996
 
 # TRAINING
-MIN_EPISODES_TO_LEARN = 100
+MIN_EPISODES_TO_LEARN = 500
 UPDATE_FRAME_COUNT = 4
 
 # Initialize Gym Environment
@@ -103,7 +103,6 @@ for i in range(NUM_EPISODES):
 
         # train agent
         if (i > MIN_EPISODES_TO_LEARN) and (frame_count % UPDATE_FRAME_COUNT == 0):
-            #for n_ in range(4):
             agent.learn(num_game=i)
 
         score += action_reward
