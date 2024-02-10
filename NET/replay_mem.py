@@ -3,7 +3,7 @@ from collections import namedtuple, deque
 import numpy as np
 
 # Create a named tuple to more semantically transform transitions and batches of transitions
-transition = namedtuple('transition', ("state", "action", "reward", "next_state", "done", "raw_state"))
+transition = namedtuple('transition', ("state", "action", "reward", "next_state", "done"))
 
 # Memory which allows for storing and sampling batches of transitions
 class ReplayBuffer(object):
@@ -22,11 +22,12 @@ class ReplayBuffer(object):
 
         # Converts batch of transitions to transitions of batches
         batch = transition(  np.array([b.state for b in batch]), np.array([b.action for b in batch], dtype=np.int64), np.array([b.reward for b in batch]), 
-                             np.array([b.next_state for b in batch]), np.array([b.done for b in batch]), np.array([b.raw_state for b in batch])  )
+                             np.array([b.next_state for b in batch]), np.array([b.done for b in batch])  )
 
         return batch
       
 
     def __len__(self):
         return len(self.buffer)
+
     

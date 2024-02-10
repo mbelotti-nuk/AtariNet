@@ -3,20 +3,17 @@ import torch
 import numpy as np
 import random
 from replay_mem import ReplayBuffer
-from NeuralNet import ATARInet
+from NeuralNet import Dueling_DQNnet, DQNnet
 import numpy as np
 import random
-import math
-from transforms import Transforms, apply_wrappers
 from PIL import Image
-import gym
 import matplotlib.pyplot as plt
 import os
 
 # This class trains and plays on the actual game
 class Agent(object):
     def __init__(self, state_space, action_space, 
-                model_name='breakout_model', number_frames = 4, gamma=0.99, eps_strt=0.1, 
+                model_name='breakout_model', number_frames = 4, gamma=0.99, eps_strt=1, 
                 eps_min=0.1, eps_dec=5e-6, batch_size=32, lr=0.001):
 
         # number of frames to be fed to the network
@@ -28,7 +25,7 @@ class Agent(object):
         # batch size for training the network
         self.batch_size = batch_size
          # After how many training iterations the target network should update
-        self.sync_network_rate = 3000
+        self.sync_network_rate = 20_000
 
 
         self.GAMMA = gamma
@@ -38,23 +35,23 @@ class Agent(object):
         self.eps = eps_strt
         self.eps_dec = eps_dec
         self.eps_min = eps_min
-        self.learn_step_counter = 0
-        self.save_interval = 2000
-
+        self.step_counter = 0
+        self.save_interval = 500_000
 
         # Use GPU if available
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        print(f"DEVICE {self.device}")
 
         # Initialise Replay Memory
         self.memory = ReplayBuffer()
 
-       
-        self.learn_counter = 0
 
         # Initialise policy and target networks, set target network to eval mode
-        self.policy_net = ATARInet(input_dim=self.state_space, out_dim=self.action_space, filename=model_name).to(self.device)
+        self.policy_net = DQNnet(input_dim=self.state_space, out_dim=self.action_space, filename=model_name).to(self.device)
+         #Dueling_DQNnet(input_dim=self.state_space, out_dim=self.action_space, filename=model_name).to(self.device)
         print(self.policy_net)
-        self.target_net = ATARInet(input_dim=self.state_space, out_dim=self.action_space, filename=model_name+'target').to(self.device)
+        self.target_net = DQNnet(input_dim=self.state_space, out_dim=self.action_space, filename=model_name+'target').to(self.device)
+         #Dueling_DQNnet(input_dim=self.state_space, out_dim=self.action_space, filename=model_name+'target').to(self.device)
         self.target_net.eval()
 
         # If pretrained model of the modelname already exists, load it
@@ -69,13 +66,13 @@ class Agent(object):
 
         # Set optimizer & loss function
         self.optim = torch.optim.Adam(self.policy_net.parameters(), lr=self.LR)
-        self.loss = torch.nn.SmoothL1Loss() #torch.nn.HuberLoss() #torch.nn.SmoothL1Loss()
+        self.loss = torch.nn.MSELoss() #torch.nn.HuberLoss() #torch.nn.SmoothL1Loss()
 
     def plot_results(self, scores, save_path=None):
         plt.plot(np.arange(1, len(scores)+1), scores, label = "Scores per game", color="blue")
         plt.plot( np.convolve(scores, np.ones(100)/100, mode='valid'), label = "Moving mean scores", color="red")
         plt.title("Scores")
-        plt.xlabel("Games")
+        plt.xlabel("Game")
         plt.legend()
         if save_path !=None:
             plt.savefig(os.path.join(save_path,"SCORES.png"))
@@ -85,7 +82,7 @@ class Agent(object):
 
 
     def sync_networks(self):
-        if self.learn_step_counter % self.sync_network_rate == 0 and self.learn_step_counter > 0:
+        if self.step_counter % self.sync_network_rate == 0 and self.step_counter > 0:
             self.target_net.load_state_dict(self.policy_net.state_dict())
 
     def sample_batch(self):
@@ -129,10 +126,10 @@ class Agent(object):
 
     # Decrement epsilon 
     def dec_eps(self):
-        self.eps = max(self.eps * self.eps_dec, self.eps_min)
+        self.eps = max(self.eps - self.eps_dec, self.eps_min)
 
     # Samples a single batch according to batchsize and updates the policy net
-    def learn(self, num_game=1):
+    def learn(self):
 
         if len(self.memory.buffer) < self.batch_size:
             return 
@@ -141,95 +138,40 @@ class Agent(object):
         # "state", "action", "reward", "next_state", "done"
         state, action, reward, state_, done = self.sample_batch()
 
+        self.optim.zero_grad()
         # Calculate the value of the action taken
         q_eval = self.policy_net(state).gather(1, action)
-
-        # Calculate best next action value from the target net and detach from grap
-        q_next = self.target_net(state_).detach().max(1)[0].unsqueeze(1)
-            
+        
         # Using q_next and reward, calculate q_target
         # (1-done) ensures q_target is 0 if transition is in a terminating state
         with torch.no_grad():
-            q_target = (1-done) * (reward + self.GAMMA * q_next) + (done * reward)
+            # Calculate best next action value from the target net and detach from grap
+            q_next = self.target_net(state_).detach().max(1)[0].unsqueeze(1)
+        
+        TD_error = (1-done) * (reward + self.GAMMA * q_next) + (done * reward)
 
         # Compute the loss
-        loss = self.loss(q_eval, q_target).to(self.device)
+        loss = self.loss(q_eval, TD_error).to(self.device)
 
         # Perform backward propagation and optimization step
-        self.optim.zero_grad()
         loss.backward()
         self.optim.step()
-
-
-        # Increment learn_counter (for dec_eps and replace_target_net)
-        self.learn_counter += 1
 
         self.sync_networks()
 
         # Save model & decrement epsilon
-        if (num_game+1) % self.save_interval == 0:
+        if (self.step_counter) % self.save_interval == 0:
             self.policy_net.save_model()
 
-        self.learn_step_counter += 1
+
+    def update_counter(self):
+        self.step_counter += 1
+        return
 
     # Save gif of an episode starting num_transitions ago from memory
-    def save_gif(self, num_transitions):
-        frames = []
-        for i in range(self.memory.pointer - num_transitions, self.memory.pointer):
-            frame = Image.fromarray(self.memory.memory[i].raw_state, mode='RGB')
-            frames.append(frame)
+    def save_gif(self, frames_raw):
+        frames = [Image.fromarray(image, mode='RGB')for image in frames_raw]
+        frame_one = frames[0]
+        frame_one.save("match.gif", format="GIF", append_images=frames,
+                save_all=True, duration=100, loop=0)
         
-        frames[0].save('episode.gif', format='GIF', append_images=frames[1:], save_all=True, duration=10, loop=0)
-
-
-    # # This function simply lets a pretrained model be evaluated to play a game
-    # # No learning will be done
-    # def play_games(self, num_eps, render=True):
-
-    #     # Set network to eval mode
-    #     self.policy_net.eval()
-
-    #     scores = []
-
-    #     for i in range(num_eps):
-
-    #         done = False
-
-    #         # Get observation and preprocess
-    #         obs = self.env.reset()
-    #         obs = obs[0]
-    #         state = Transforms.to_gray(obs)
-            
-    #         score = 0
-    #         cnt = 0
-
-
-    #         while not done:
-    #             # Take the greedy action and observe next state
-    #             action = self.greedy_action(state)
-    #             obs_, reward, done, _, __ = self.env.step(action)
-    #             if render:
-    #                 self.env.render()
-
-    #             # Preprocess next state and store transition
-    #             #state_ = Transforms.to_gray(obs, obs_)
-    #             state_ = Transforms.to_gray(obs_)
-    #             self.store_transition(state, action, reward, state_, int(done), obs)
-
-    #             # Calculate score, set next state and obs and increment counter
-    #             score += reward
-    #             obs = obs_
-    #             state = state_
-    #             cnt += 1
-
-    #         # If the score is more than 300, save a gif of that game
-    #         if score > 300:
-    #             self.save_gif(cnt)
-            
-
-    #         print(f'Episode {i}/{num_eps}: \n\tScore: {score}\n\tAvg score (past 100): {np.mean(scores[-100:])}\
-    #             \n\tEpsilon: {self.eps}\n\tSteps made: {cnt}')
-
-        
-    #     self.env.close()
-

@@ -1,44 +1,62 @@
 import torchvision.transforms as transforms
-from gym import Wrapper
-from gym.wrappers import GrayScaleObservation, ResizeObservation, FrameStack
-
-# Class to convert images to grayscale and crop
-class Transforms:
-    def to_gray(frame):
-        gray_transform = transforms.Compose([
-            transforms.ToPILImage(),
-            transforms.Grayscale(),
-            transforms.CenterCrop((175,150)),
-            transforms.Resize((84, 84)),
-            transforms.ToTensor()
-        ])
-
-        new_frame = gray_transform(frame)
-
-        return new_frame.numpy()
+from torchvision import transforms as T
+import torch
+import numpy as np
+import gym
+from gym.spaces import Box
+from gym.wrappers import FrameStack
+from gym import Wrapper, ObservationWrapper
+from collections import deque
     
 
 
-class SkipFrame(Wrapper):
-    def __init__(self, env, skip):
+class GrayScaleObservation(ObservationWrapper):
+    def __init__(self, env):
         super().__init__(env)
-        self.skip = skip
-    
-    def step(self, action):
-        total_reward = 0.0
-        done = False
-        for _ in range(self.skip):
-            next_state, reward, done, trunc, info = self.env.step(action)
-            total_reward += reward
-            if done:
-                break
-        return next_state, total_reward, done, trunc, info
-    
+        
+        obs_shape = self.observation_space.shape[:2]
+        self.observation_space = Box(low=0, high=255, shape=obs_shape, dtype=np.uint8)
+
+    def permute_orientation(self, observation):
+        # permute [H, W, C] array to [C, H, W] tensor
+        observation = np.transpose(observation, (2, 0, 1))
+        observation = torch.tensor(observation.copy(), dtype=torch.float)
+        return observation
+
+    def observation(self, observation):
+        observation = self.permute_orientation(observation)
+        transform = T.Grayscale()
+        observation = transform(observation)
+        return observation
+
+
+class ResizeObservation(gym.ObservationWrapper):
+    def __init__(self, env, shape):
+        super().__init__(env)
+        if isinstance(shape, int):
+            self.shape = (shape, shape)
+        else:
+            self.shape = tuple(shape)
+
+        obs_shape = self.shape + self.observation_space.shape[2:]
+        self.observation_space = Box(low=0, high=255, shape=obs_shape, dtype=np.uint8)
+
+    def observation(self, observation):
+        # crop observation
+        observation = observation[:, 34:34 + 160, :160]
+        
+        transforms = T.Compose(
+            [T.Resize(self.shape, antialias=True), T.Normalize(0, 255)]
+        )
+        observation = transforms(observation).squeeze(0).numpy()
+        return observation
+
 
 def apply_wrappers(env):
-    env = SkipFrame(env, skip=4) # Num of frames to apply one action to
-    env = ResizeObservation(env, shape=84) # Resize frame from 240x256 to 84x84
+    # Apply Wrappers to environment
     env = GrayScaleObservation(env)
-    env = FrameStack(env, num_stack=4, lz4_compress=True) # May need to change lz4_compress to False if issues arise
+    env = ResizeObservation(env, shape=84)
     return env
+
+
 
