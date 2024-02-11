@@ -1,62 +1,101 @@
 import torchvision.transforms as transforms
 from torchvision import transforms as T
-import torch
 import numpy as np
 import gym
-from gym.spaces import Box
-from gym.wrappers import FrameStack
-from gym import Wrapper, ObservationWrapper
 from collections import deque
+from matplotlib import pyplot as plt
     
+# Class to convert images to grayscale and crop
+class Transforms:
+    def to_gray(frame):
+        gray_transform = transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.Grayscale(),
+            transforms.CenterCrop((175,150)),
+            transforms.Resize((84, 84)),
+            transforms.ToTensor()
+        ])
 
+        new_frame = gray_transform(frame)
 
-class GrayScaleObservation(ObservationWrapper):
-    def __init__(self, env):
-        super().__init__(env)
+        return new_frame.numpy()
+
+class Environment:
+    def __init__(self, env, skip_frames, n_frames):
+        self.env = env
+
+        self._state = deque(maxlen=n_frames)
+        self._next_state = deque(maxlen=n_frames)
+        self._stack = deque(maxlen=2)
+        self._n_lifes = 5
         
-        obs_shape = self.observation_space.shape[:2]
-        self.observation_space = Box(low=0, high=255, shape=obs_shape, dtype=np.uint8)
+        self._skip_frames = skip_frames
+        self._n_frames = n_frames
+    
+    def reset(self):
+        
+        self._n_lifes = 5
 
-    def permute_orientation(self, observation):
-        # permute [H, W, C] array to [C, H, W] tensor
-        observation = np.transpose(observation, (2, 0, 1))
-        observation = torch.tensor(observation.copy(), dtype=torch.float)
-        return observation
+        # Reset environment and preprocess state
+        obs, _  = self.env.reset()
+        state = Transforms.to_gray(obs[0])
+        # initialize state
+        self._state = deque( [state[0]]*self._n_frames, maxlen=self._n_frames )
+        # initialize next_state
+        self._next_state = self._state.copy()
+        # initialize stack
+        self._stack.append(obs[0])
 
-    def observation(self, observation):
-        observation = self.permute_orientation(observation)
-        transform = T.Grayscale()
-        observation = transform(observation)
-        return observation
+    def step(self, action):
+        # initialize reward
+        reward = 0 
+        # do k consecutive step with the same action
+        for k in range(self._skip_frames):
+            obs_, action_reward, done, trunc, info = self.env.step(action)
+            reward += action_reward 
+            self._stack.append(obs_)
+            if done: break
 
+        self._next_state = self._state.copy()
 
-class ResizeObservation(gym.ObservationWrapper):
-    def __init__(self, env, shape):
-        super().__init__(env)
-        if isinstance(shape, int):
-            self.shape = (shape, shape)
+        # if dead, reset the history, since previous states don't matter anymore
+        if done: 
+             black_screen = np.zeros_like(obs_)
+             self._next_state.append(black_screen)
         else:
-            self.shape = tuple(shape)
-
-        obs_shape = self.shape + self.observation_space.shape[2:]
-        self.observation_space = Box(low=0, high=255, shape=obs_shape, dtype=np.uint8)
-
-    def observation(self, observation):
-        # crop observation
-        observation = observation[:, 34:34 + 160, :160]
-        
-        transforms = T.Compose(
-            [T.Resize(self.shape, antialias=True), T.Normalize(0, 255)]
-        )
-        observation = transforms(observation).squeeze(0).numpy()
-        return observation
+            # blur last two frames
+            next_obs = np.maximum(*list(self._stack))
+            # transform the observation
+            state_ = Transforms.to_gray(next_obs).squeeze(0)
+            # append the last observation, skipping n=SKIP_ACTIONS that were before
+            self._next_state.append(state_)
 
 
-def apply_wrappers(env):
-    # Apply Wrappers to environment
-    env = GrayScaleObservation(env)
-    env = ResizeObservation(env, shape=84)
-    return env
+        # update reward when losing game
+        if info['lives'] < self._n_lifes:
+            reward += -2
+            # re-assign n_lifes
+            self._n_lifes = info['lives'] 
+
+        # clip reward
+        reward = np.sign(reward)
+
+        return self._state, self._next_state, action, reward, int(done)
+
+    def state(self):
+        # re-assign state
+        self._state = self._next_state.copy()      
+        return self._state
+    
+    def debug_imgs(self): 
+        for i in range(0, len(self._next_state)):        
+            plt.imshow(self._next_state[i], cmap="gray")
+            plt.savefig(f"next_state_{i}.png")
+            plt.clf()
+            plt.imshow(self._state[i], cmap="gray")
+            plt.savefig(f"state_{i}.png")
+            plt.clf()
+        return
 
 
 

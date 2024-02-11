@@ -2,35 +2,31 @@ import sys
 sys.path.append("NET")
 from NET.Agent import Agent
 import gym
-from NET.transforms import  apply_wrappers
+from NET.transforms import Environment
 import numpy as np
 import gc
 import torch
 from collections import deque
 
 # Specify environment location
-env_name = "BreakoutDeterministic-v4"
-NUM_EPISODES = 45_000 
+env_name = "ALE/Breakout-v5"
+NUM_EPISODES = 200 
 DISPLAY = True
-LR = 1E-4
+
 N_FRAMES = 4
 SKIP_ACTIONS = 4
-EPS_STRT = 1
-EPS_MIN = .1
-EPS_DEC = 0.99992
-MIN_EPISODES_TO_LEARN = 5
+
 UPDATE_FRAME_COUNT = 4
 
 
 # Initialize Gym Environment
-env =gym.make( 'ALE/Breakout-v5',render_mode='human' if DISPLAY else 'rgb_array' ) #render_mode="rgb_array")
+env =gym.make( env_name, render_mode='human' if DISPLAY else 'rgb_array' )
 
-# apply wrappers
-env = apply_wrappers(env=env)
-
+ENVIRONMENT = Environment(env, skip_frames=SKIP_ACTIONS, n_frames=N_FRAMES)
 # Create an agent
-agent = Agent(state_space=(4,84,84), action_space=4, model_name='32x64x64_breakout_model', gamma=.99,
-                eps_strt=1., eps_min=.1, eps_dec=0.9992, batch_size=32, lr=.00025, number_frames=N_FRAMES)
+agent = Agent(state_space=(4,84,84), action_space=4, 
+              model_name='32x64x64_breakout_model', gamma=.99,
+               batch_size=32, lr=5E-5)
 
 
 # Clean environment
@@ -46,24 +42,18 @@ max_score = 0
 
 for i in range(NUM_EPISODES):
     done = False
-
-    # Reset environment and preprocess state
-    obs, _  = env.reset()
-    state, _, _, _, _ = env.step(1)
-
+    # re-set the environment
+    ENVIRONMENT.reset()
     score = 0
             
     while not done:
-         # Take epsilon greedy action
-        action = agent.choose_action(state)
+         # Take only greedy action
+        action = agent.choose_action(ENVIRONMENT.state(), train=False)
 
-        next_state, reward, done, trunk, info = env.step(action)
-
-        # clip reward
-        reward = np.sign(reward)
+        # make a step
+        state, next_state, action, reward, done = ENVIRONMENT.step(action)
 
         score += reward
-        state = next_state
 
 
     scores.append(score)
