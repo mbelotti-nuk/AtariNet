@@ -8,7 +8,20 @@ from gym.wrappers import FrameStack
 from gym import Wrapper, ObservationWrapper
 from collections import deque
     
+# Class to convert images to grayscale and crop
+class Transforms:
+    def to_gray(frame):
+        gray_transform = transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.Grayscale(),
+            transforms.CenterCrop((175,150)),
+            transforms.Resize((84, 84)),
+            transforms.ToTensor()
+        ])
 
+        new_frame = gray_transform(frame)
+
+        return new_frame.numpy()
 
 class GrayScaleObservation(ObservationWrapper):
     def __init__(self, env):

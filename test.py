@@ -55,7 +55,7 @@ for i in range(NUM_EPISODES):
             
     while not done:
          # Take epsilon greedy action
-        action = agent.choose_action(state)
+        action = agent.choose_action(state, train=False)
 
         next_state, reward, done, trunk, info = env.step(action)
 
