@@ -1,62 +1,81 @@
-import numpy
-
-
+import numpy as np
+from collections import namedtuple
+experience = namedtuple('experience', ("state", "next_state", "action", "reward", "done"))
 # SumTree
 # a binary tree data structure where the parent’s value is the sum of its children
 class SumTree:
-    write = 0
+    pointer = 0
 
     def __init__(self, capacity):
+        # number of leaf nodes
         self.capacity = capacity
-        self.tree = numpy.zeros(2 * capacity - 1)
+        # initialize tree
+        self.tree = np.zeros(2 * capacity - 1)
+        # Contains the experiences (so the size of data is capacity)
+        self.data = np.zeros(capacity, dtype=object)
         self.n_entries = 0
 
-    # update to the root node
-    def _propagate(self, idx, change):
-        parent = (idx - 1) // 2
-
-        self.tree[parent] += change
-
-        if parent != 0:
-            self._propagate(parent, change)
-
-    # find sample on leaf node
-    def _retrieve(self, idx, s):
-        left = 2 * idx + 1
-        right = left + 1
-
-        if left >= len(self.tree):
-            return idx
-
-        if s <= self.tree[left]:
-            return self._retrieve(left, s)
-        else:
-            return self._retrieve(right, s - self.tree[left])
-
-    def total(self):
-        return self.tree[0]
 
     # store priority and sample
-    def add(self, p):
-        idx = self.write + self.capacity - 1
+    def add(self, priority:int, data):
+        idx = self.pointer + self.capacity - 1
 
-        self.update(idx, p)
+        """ tree:
+                0
+               / \
+              0   0
+             / \ / \
+           idx 0 0  0  We fill the leaves from left to right
+        """
+        
+        self.data[self.pointer] = data
+        # update leaf
+        self.update(idx, priority)
 
-        self.write += 1
-        if self.write >= self.capacity:
-            self.write = 0
+        self.pointer += 1
+        if self.pointer >= self.capacity:
+            self.pointer = 0
 
         if self.n_entries < self.capacity:
             self.n_entries += 1
 
     # update priority
-    def update(self, idx, p):
-        change = p - self.tree[idx]
+    def update(self, idx, priority):
+        # difference between new priority score 
+        # and old priority score
+        change = priority - self.tree[idx]
 
-        self.tree[idx] = p
+        # update priority
+        self.tree[idx] = priority
         self._propagate(idx, change)
 
+    # update to the root node
+    def _propagate(self, idx, change):
+        parent = (idx - 1) // 2
+        self.tree[parent] += change
+        if parent != 0:
+            self._propagate(parent, change)
+
     # get priority and sample
-    def get(self, s):
-        idx = self._retrieve(0, s)
-        return (idx, self.tree[idx])
+    def get_leaf(self, s):
+        leaf_index = self._retrieve(0, s)
+        data_index = leaf_index - self.capacity + 1
+        return (leaf_index, self.tree[leaf_index], self.data[data_index])
+
+    # find sample on leaf node
+    def _retrieve(self, parent_index, s):
+        left_child_index  = 2 * parent_index + 1
+        right_child_index = left_child_index + 1
+
+        if left_child_index >= len(self.tree):
+            return parent_index
+
+        if s <= self.tree[left_child_index]:
+            return self._retrieve(left_child_index, s)
+        else:
+            return self._retrieve(right_child_index, s - self.tree[left_child_index])
+        
+    @property
+    def total_priority(self):
+        return self.tree[0]
+

@@ -2,7 +2,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import torch
 import numpy as np
 import random
-from replay_mem import ReplayBuffer, experience, PRBuffer_memory, ReplayBuffer_memory, prioritized_replay_memory
+from replay_mem import  experience, ReplayBuffer_memory, PER_memory_buffer
 from NeuralNet import Dueling_DQNnet, DQNnet
 import numpy as np
 import random
@@ -42,7 +42,7 @@ class Agent(object):
         
         # Initialize Replay Memory
         if(prioritized_replay):
-            self.memory = prioritized_replay_memory(alfa=0.6)  #PRBuffer_memory(alfa=0.6)
+            self.memory = PER_memory_buffer(alfa=0.6) 
         else:
             self.memory = ReplayBuffer_memory() #ReplayBuffer()
 
@@ -116,7 +116,7 @@ class Agent(object):
     # Samples a single batch according to batchsize and updates the policy net
     def learn(self):
 
-        if len(self.memory.buffer) < self.batch_size: #self.memory.buffer_end() < self.batch_size:
+        if self.memory.buffer_length < self.batch_size:
             return 
 
         # Sample batch

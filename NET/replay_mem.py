@@ -9,251 +9,106 @@ transition = namedtuple('transition', ("state", "action", "reward", "done"))
 experience = namedtuple('experience', ("state", "next_state", "action", "reward", "done"))
 per_experience = namedtuple('experience', ("state", "next_state", "action", "reward", "done", "index", "weight"))
 
-# Memory which allows for storing and sampling batches of transitions
-class ReplayBuffer(object):
-    def __init__(self):
-        self.replay_memory_size = 1_000_000
-        self.buffer = np.empty(self.replay_memory_size, dtype = [("experience", experience)] )
-        self.pointer = 0
 
-    # Adds a single experience to the memory buffer
-    def add_experience(self, current_experience): 
-
-        if(self.pointer < self.replay_memory_size):
-            self.buffer[self.pointer]["experience"] = current_experience
-        else:
-            self.buffer[self.pointer % self.replay_memory_size]["experience"] = current_experience
-
-        self.pointer += 1
-
-    def buffer_end(self):
-        if(self.pointer < self.replay_memory_size):
-            return self.pointer - 1
-        else:
-            return self.replay_memory_size - 1
-
-    # Samples a batch of transitions
-    def sample_batch(self, batch_size=64, device="cuda:0"):
-        batch_index = np.random.randint(0, self.buffer_end(), size = batch_size)
-        experiences = self.buffer["experience"][batch_index]
-        
-        states, next_states, actions, rewards, dones = self.to_arrays(experiences)
-
-        state_shape = states[0].shape
-
-        # Convert to tensors with correct dimensions
-        state =  torch.tensor( states  ).view(batch_size, -1, state_shape[1], state_shape[2]).float().to(device)
-        action = torch.tensor( actions ).unsqueeze(1).type(torch.int64).to(device)
-        reward = torch.tensor( rewards ).float().unsqueeze(1).to(device)
-        next_state = torch.tensor( next_states ).view(batch_size, -1, state_shape[1], state_shape[2]).float().to(device)
-        done =   torch.tensor( dones   ).float().unsqueeze(1).to(device)
-
-        return experience(state, next_state, action, reward, done)
+class PER_memory_buffer(object):  # stored as ( state, action, reward, next_state ) in SumTree
+    error_epsilon = 0.01  # Hyperparameter that we use to avoid some experiences to have 0 probability of being taken
     
-    def to_arrays(self, experiences):
-        states = np.stack( [exp.state for exp in experiences] ) 
-        next_states = np.stack( [exp.next_state for exp in experiences] ) 
-        actions = np.stack( [exp.action for exp in experiences] ) 
-        rewards = np.stack( [exp.reward for exp in experiences] ) 
-        dones = np.stack( [exp.done for exp in experiences] ) 
-        return states, next_states, actions, rewards, dones
-
-
-    def __init__(self, alfa):
-        self.replay_memory_size = 1_000_000
-        self.buffer = np.empty(self.replay_memory_size, dtype = [("experience", experience)] )
-        self.priorities = np.empty(self.replay_memory_size, dtype=np.float32)
-        self.pointer = 0
-        self._alfa = alfa
-        self._beta = 1
-        self.random_state = np.random.RandomState()
-
-    # Adds a single transitions to the memory buffer
-    def add_experience(self, current_experience):
-        priority = 1
-        if(self.pointer > 1 ):
-            priority = np.max(self.priorities) 
-
-        if(self.pointer < self.replay_memory_size):
-            self.buffer[self.pointer]["experience"] = current_experience
-            self.priorities[self.pointer] = priority
-        else:
-            # subsitute lowest priority
-            if priority > self.priorities.min():
-                index = self.priorities.argmin()
-                self.buffer[index]["experience"] = current_experience
-                self.priorities[index] = priority
-            # do not add low priorities
-            else:
-                pass
-
-        self.pointer += 1
-
-
-    def buffer_end(self):
-        if(self.pointer < self.replay_memory_size):
-            return self.pointer - 1
-        else:
-            return self.replay_memory_size - 1
-
-
-    def sample_batch(self, batch_size=64, device="cuda:0"):
-        # use sampling scheme to determine which experiences to use for learning
-        ps = self.priorities[ : self.buffer_end() ]
-        sampling_probs = ps / np.sum(ps)
-        batch_index = self.random_state.choice(np.arange(self.buffer_end()),
-                                            size=batch_size,
-                                            replace=True,
-                                            p=sampling_probs)
-            
-
-        experiences = self.buffer["experience"][batch_index]
-            
-        states, next_states, actions, rewards, dones = self.to_arrays(experiences)
-
-        state_shape = states[0].shape
-
-        # Convert to tensors with correct dimensions
-        state =  torch.tensor( states  ).view(batch_size, -1, state_shape[1], state_shape[2]).float().to(device)
-        action = torch.tensor( actions ).unsqueeze(1).type(torch.int64).to(device)
-        reward = torch.tensor( rewards ).float().unsqueeze(1).to(device)
-        next_state = torch.tensor( next_states ).view(batch_size, -1, state_shape[1], state_shape[2]).float().to(device)
-        done =   torch.tensor( dones   ).float().unsqueeze(1).to(device)
-
-            
-        weights = (self.buffer_end() * sampling_probs[batch_index])**-self._beta
-        normalized_weights = weights / weights.max()
-            
-        return per_experience(state, next_state, action, reward, done, batch_index, normalized_weights)
-
-    def beta_annealing_schedule(self, num_episodes):
-        self._beta =  1 - np.exp(-1e-2 * num_episodes)
-
-    def update_priorities(self, indices: np.array, TD_errors: np.array):
-        self.priorities[indices] = TD_errors**self.alfa
-        
-    def to_arrays(self, experiences):
-        states = np.stack( [exp.state for exp in experiences] ) 
-        next_states = np.stack( [exp.next_state for exp in experiences] ) 
-        actions = np.stack( [exp.action for exp in experiences] ) 
-        rewards = np.stack( [exp.reward for exp in experiences] ) 
-        dones = np.stack( [exp.done for exp in experiences] ) 
-        return states, next_states, actions, rewards, dones
+    PER_b_increment_per_sampling = 0.001
     
-# prioritized memory buffer which occupies less memmory
-class PRBuffer_memory(object):
-    def __init__(self, alfa):
-        self.replay_memory_size = 1_000_000
-        self.buffer = np.empty(self.replay_memory_size, dtype = [("experience", experience)] )
-        self.priorities = np.empty(self.replay_memory_size, dtype=np.float32)
-        self.pointer = 0
-        self.dtype = np.uint8
-        
+    absolute_error_upper = 1.  # clipped abs error
+
+    def __init__(self, alfa, capacity=500_000):
+        # Making the tree 
+        self.tree = SumTree(capacity)
         self._alfa = alfa
         self._beta = 0.4
-
         self._beta_increment_per_sampling = 0.000005
+        self.dtype = np.uint8
 
-        self.max_priority = 1
-        
-        self.random_state = np.random.RandomState()
-        
+    @property
+    def buffer_length(self):
+        return self.tree.n_entries
 
-    # Adds a single transitions to the memory buffer
-    def add_experience(self, current_experience:experience):
+    def add_experience(self, _experience:experience):
+        # Find the max priority
+        max_priority = np.max(self.tree.tree[-self.tree.capacity:])
 
-        state = np.array(current_experience.state*255, dtype = self.dtype)
-        next_state = np.array(current_experience.next_state*255, dtype=self.dtype)
-        experience = experience(state=state, next_state =next_state, action=current_experience.action, reward=current_experience.reward, done=current_experience.done)
-
-        if self.pointer > 1:
-            self.max_priority = np.max(self.max_priority) 
-
-        if(self.pointer < self.replay_memory_size):
-            self.buffer[self.pointer]["experience"] = experience
-            self.priorities[self.pointer] = self.max_priority
-        else:
-            self.buffer[self.pointer % self.replay_memory_size]["experience"] = experience
-            self.priorities[self.pointer % self.replay_memory_size] = self.max_priority
-
-        self.pointer += 1
+        # transform to unit8
+        _state = np.array(_experience.state*255, dtype = self.dtype)
+        _next_state = np.array(_experience.next_state*255, dtype=self.dtype)
+        # make torch tensors
+        new_experience = experience(state = torch.tensor(_state), 
+                                    next_state = torch.tensor(_next_state),
+                                    action = torch.tensor(_experience.action), 
+                                    reward = torch.tensor(_experience.reward), 
+                                    done = torch.tensor(_experience.done))
 
 
-    def buffer_end(self):
-        if(self.pointer < self.replay_memory_size):
-            return self.pointer - 1
-        else:
-            return self.replay_memory_size - 1
+        # If the max priority = 0 we can't put priority = 0 since this experience will never have a chance to be selected
+        # So we use a minimum priority
+        if max_priority == 0:
+            max_priority = self.absolute_error_upper
+
+        self.tree.add(max_priority, new_experience)   # set the max priority for new priority
 
 
-    def sample_batch(self, batch_size=64, device="cuda:0"):
+    def sample_batch(self, batch_size, device="cuda:0"):
+        # Create a minibatch array that will contains the minibatch
+        minibatch = []
+        priorities = []
+        batch_idx = np.empty((batch_size,), dtype=np.int32)
 
-        # use sampling scheme to determine which experiences to use for learning
-        # the sampling takes transition from 3 to buffer.end() -1
-        # the first one is because we need to define the state by taking the previous 3 transitions
-        # the second one is because the next state takes also the one transition more
-        
-        # anneal beta
-        self._beta = np.min([1., self._beta + self._beta_increment_per_sampling])
+        # Calculate the priority segment
+        # Here, as explained in the paper, we divide the Range[0, ptotal] into n ranges
+        priority_segment = self.tree.total_priority / batch_size       # priority segment
 
-        begin = 3
-        end = self.buffer_end()-1
+        for i in range(batch_size):
+            # A value is uniformly sample from each range
+            a, b = priority_segment * i, priority_segment * (i + 1)
+            value = np.random.uniform(a, b)
 
-        ps = self.priorities[ begin : end ]
-        sampling_probs = ps / np.sum(ps)
-
-
-        batch_index = self.random_state.choice(np.arange(begin, end),
-                                                size=batch_size,
-                                                replace=True,
-                                                p=sampling_probs)
+            # Experience that correspond to each value is retrieved
+            index, priority, data = self.tree.get_leaf(value)
             
-        states, next_states, actions, rewards, dones = self.to_arrays(batch_index)
+            priorities.append(priority)
+            batch_idx[i]= index
+            minibatch.append(experience(  state = data[0].unsqueeze(0).float().cuda()/255, 
+                                          next_state = data[1].unsqueeze(0).float().cuda()/255, 
+                                          action =  data[2].reshape(1).cuda(),
+                                          reward =  data[3].reshape(1).cuda(),
+                                          done =    data[4].reshape(1).cuda()))
 
-        state_shape = states[0].shape
+        # compute weight
+        possibilities = priorities / self.tree.total_priority
+        weight = np.power(self.tree.n_entries * possibilities, -self._beta)
+        max_weight = weight.max()
+        weight = weight/max_weight
+        weight = torch.tensor(weight[:,np.newaxis], dtype = torch.float).to(device)
 
-        # Convert to tensors with correct dimensions
-        state =  (torch.tensor( states ).view(batch_size, -1, state_shape[1], state_shape[2]).float()/255).to(device)
-        action = torch.tensor( actions ).unsqueeze(1).type(torch.int64).to(device)
-        reward = torch.tensor( rewards ).float().unsqueeze(1).to(device)
-        next_state = (torch.tensor( next_states ).view(batch_size, -1, state_shape[1], state_shape[2]).float()/255).to(device)
-        done =   torch.tensor( dones ).float().unsqueeze(1).to(device)
-            
-        weights = ( (self.buffer_end() + 1) * sampling_probs[ batch_index - begin ] )**(-self._beta)
-        normalized_weights = weights / np.max(weights)
-            
-        return per_experience(state, next_state, action, reward, done, batch_index, normalized_weights)
+        per_experiences = self._extract_tensors(experiences=minibatch, experience_index=batch_idx,weight=weight )
+        return per_experiences
+    
+
+    def update_priorities(self, tree_idx, abs_errors):
+        priorities_list = (np.abs(abs_errors) + self.error_epsilon) ** self._alfa
+        for index, priority in zip(tree_idx, priorities_list):
+            self.tree.update(idx=index, priority=priority)
 
     def beta_annealing_schedule(self, num_episodes):
         self._beta =  1 - np.exp(-1e-3 * num_episodes)
 
-    def update_priorities(self, indices: np.array, priorities: np.array):
-        self.priorities[indices] = priorities**self._alfa
-        
-    def to_arrays(self, batch_index):
+    def _extract_tensors(self, experiences:List[experience], experience_index, weight) -> per_experience:
+        # Convert batch of Experiences to Experience of batches
+        batch = experience(*zip(*experiences))
 
-        experiences = self.buffer["experience"][batch_index]
-        states = np.stack( [exp.state for exp in experiences] ) 
-        next_states = np.stack( [exp.next_state for exp in experiences] ) 
-        actions = np.stack( [exp.action for exp in experiences] ) 
-        rewards = np.stack( [exp.reward for exp in experiences] ) 
-        dones = np.stack( [exp.done for exp in experiences] )        
-        # states, next_states = [], []
-        # for ind in batch_index:
-        #     state = np.stack( [self.buffer["transition"][ind+i].state for i in range(-3,1)])
-        #     next_state = np.stack( [self.buffer["transition"][ind+i].state for i in range(-2,2)])
-        #     states.append(state)
-        #     next_states.append(next_state)
-        
-        # states = np.stack( states ) 
-        # next_states = np.stack(next_states ) 
+        t1 = torch.cat(batch.state)
+        t2 = torch.cat(batch.next_state)
+        t3 = torch.cat(batch.action).squeeze(0).unsqueeze(1)
+        t4 = torch.cat(batch.reward).squeeze(0).unsqueeze(1)
+        t5 = torch.cat(batch.done).squeeze(0).unsqueeze(1)
 
-        # transitions = self.buffer["transition"][batch_index]
-        # actions = np.stack( [exp.action for exp in transitions] ) 
-        # rewards = np.stack( [exp.reward for exp in transitions] ) 
-        # dones = np.stack( [exp.done for exp in transitions] ) 
+        return per_experience(t1,t2,t3,t4,t5, experience_index, weight)
 
-        return states, next_states, actions, rewards, dones
 
 # Memory which allows for storing and sampling batches of transitions
 class ReplayBuffer_memory(object):
@@ -324,8 +179,12 @@ class ReplayBuffer_memory(object):
 
 
         return states, next_states, actions, rewards, dones
-    
-class prioritized_replay_memory():
+
+
+
+
+class ReplayBuffer_memory(object):
+
     # Memory replay with priorited experience replay
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     def __init__(self, capacity=500_000, alfa=0.6, beta_start=0.4, beta_startpoint=50000, beta_kneepoint = 1000000, error_epsilon=1e-5):
@@ -340,6 +199,9 @@ class prioritized_replay_memory():
         self.dtype = np.uint8
         self.max_priority = 1
 
+    @property
+    def buffer_length(self):
+        return len(self.buffer)
     def add_experience(self, _experience:experience):
         _state = np.array(_experience.state*255, dtype = self.dtype)
         _next_state = np.array(_experience.next_state*255, dtype=self.dtype)
@@ -356,7 +218,7 @@ class prioritized_replay_memory():
 
         self.push_count += 1
         # push new state to priority tree
-        self.priority_tree.add(p=1)
+        self.priority_tree.add(priority=1)
 
     def sample_batch(self, batch_size, device):
         # get indices of experience by priorities
@@ -399,7 +261,7 @@ class prioritized_replay_memory():
         # priorities_list = np.abs(TD_error_list) + self.error_epsilon
         priorities_list = (np.abs(TD_error_list) + self.error_epsilon) ** self.alpha
         for index, priority in zip(index_list, priorities_list):
-            self.priority_tree.update(idx=index, p=priority)
+            self.priority_tree.update(idx=index, priority=priority)
             self.max_priority = np.max(self.max_priority, priority)
 
     def can_provide_sample(self, batch_size, replay_start_size):
