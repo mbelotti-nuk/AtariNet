@@ -2,7 +2,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import torch
 import numpy as np
 import random
-from replay_mem import ReplayBuffer, experience, PrioritizedReplayBuffer
+from replay_mem import ReplayBuffer, experience, PRBuffer_memory, ReplayBuffer_memory, prioritized_replay_memory
 from NeuralNet import Dueling_DQNnet, DQNnet
 import numpy as np
 import random
@@ -15,7 +15,7 @@ class Agent(object):
     def __init__(self, state_space, action_space, 
                 model_name='breakout_model', gamma=0.99,
                 batch_size=32, lr=0.001,
-                prioritized_replay=False):
+                prioritized_replay=True):
 
         self.state_space = state_space
         self.action_space = action_space
@@ -42,9 +42,9 @@ class Agent(object):
         
         # Initialize Replay Memory
         if(prioritized_replay):
-            self.memory = PrioritizedReplayBuffer(alfa=0.5)
+            self.memory = prioritized_replay_memory(alfa=0.6)  #PRBuffer_memory(alfa=0.6)
         else:
-            self.memory = ReplayBuffer()
+            self.memory = ReplayBuffer_memory() #ReplayBuffer()
 
         # Initialise policy and target networks, set target network to eval mode
         self.policy_net = DQNnet(input_dim=state_space, out_dim=action_space, filename=model_name).to(self.device)
@@ -80,8 +80,8 @@ class Agent(object):
 
     def update_num_episodes(self):
         self.num_episodes += 1
-        if(self.prioritized_replay):
-            self.memory.beta_annealing_schedule(self.num_episodes)
+        # if(self.prioritized_replay):
+        #     self.memory.beta_annealing_schedule(self.num_episodes)
 
 
     # Returns the greedy action according to the policy net
@@ -116,7 +116,7 @@ class Agent(object):
     # Samples a single batch according to batchsize and updates the policy net
     def learn(self):
 
-        if self.memory.buffer_length() < self.batch_size:
+        if len(self.memory.buffer) < self.batch_size: #self.memory.buffer_end() < self.batch_size:
             return 
 
         # Sample batch
@@ -127,9 +127,12 @@ class Agent(object):
 
         if self.prioritized_replay:
             TD_errors = torch.abs(q_eval - q_target)
+            # update memory 
+            self.memory.update_priorities( experiences.index , TD_errors.detach().cpu().numpy().flatten() + 1e-5)  
+            # compute loss
             sampling_weights = (torch.Tensor(experiences.weight).view(-1,self.batch_size)).to(self.device)
             loss = torch.mean((TD_errors * sampling_weights)**2)
-            self.memory.update_priorities( experiences.index , TD_errors.detach().cpu().numpy().flatten() + 1e-6)            
+                     
         else:
             # Compute the loss
             loss = self.loss(q_eval, q_target).to(self.device)

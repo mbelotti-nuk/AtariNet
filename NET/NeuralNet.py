@@ -146,4 +146,4 @@ class DQNnet(nn.Module):
 
     # Loads a model
     def load_model(self):
-        self.load_state_dict(torch.load('NET/models/' + "DDQN_" + self.filename + '.pt'))
+        self.load_state_dict(torch.load('NET/models/saved/DDQN_32x64x64_breakout_no_priority.pt'))

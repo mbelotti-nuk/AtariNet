@@ -21,14 +21,16 @@ class Transforms:
         return new_frame.numpy()
 
 class Environment:
-    def __init__(self, env, skip_frames, n_frames):
+    def __init__(self, env, skip_frames, n_frames, state_space):
         self.env = env
 
-        self._state = deque(maxlen=n_frames)
-        self._next_state = deque(maxlen=n_frames)
+        self._state = deque(np.zeros(state_space), maxlen=n_frames)
+        self._next_state = deque(np.zeros(state_space), maxlen=n_frames)
         self._stack = deque(maxlen=2)
         self._n_lifes = 5
         
+        self.black_screen = np.zeros((state_space[1],state_space[2]))
+
         self._skip_frames = skip_frames
         self._n_frames = n_frames
     
@@ -60,8 +62,7 @@ class Environment:
 
         # if dead, reset the history, since previous states don't matter anymore
         if done: 
-             black_screen = np.zeros_like(obs_)
-             self._next_state.append(black_screen)
+             self._next_state.append(self.black_screen)
         else:
             # blur last two frames
             next_obs = np.maximum(*list(self._stack))
@@ -80,7 +81,7 @@ class Environment:
         # clip reward
         reward = np.sign(reward)
 
-        return self._state, self._next_state, action, reward, int(done)
+        return np.array(self._state), np.array(self._next_state), action, reward, int(done)
 
     def state(self):
         # re-assign state

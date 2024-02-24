@@ -15,9 +15,9 @@ env_name = "ALE/Breakout-v5"
 EPS_START=1
 EPS_END=0.1
 EPS_FINAL = 0.01 
-N_OBSERVE_STEPS = 50000 
-KNEE_STEP=1000000 
-KNEE_FINAL_STEP = 22000000
+N_OBSERVE_STEPS = 100 #50_000 
+KNEE_STEP = 1_000_000 
+KNEE_FINAL_STEP = 22_000_000
 
 # specifications on environment
 DISPLAY = False
@@ -27,12 +27,12 @@ SKIP_ACTIONS = 4
 
 # TRAINING
 UPDATE_FRAME_COUNT = 4
-MAX_EPISODES = 60_000
+MAX_EPISODES = 100_000
 
 
 # Initialize Gym Environment
 env =gym.make( env_name, render_mode='human' if DISPLAY else 'rgb_array' )
-ENVIRONMENT = Environment(env, skip_frames=SKIP_ACTIONS, n_frames=N_FRAMES)
+ENVIRONMENT = Environment(env, skip_frames=SKIP_ACTIONS, n_frames=N_FRAMES, state_space=(4,84,84))
 
 # Create an agent
 agent = Agent(state_space=(4,84,84), action_space=4, model_name='32x64x64_breakout_model', gamma=.99,

@@ -22,10 +22,10 @@ UPDATE_FRAME_COUNT = 4
 # Initialize Gym Environment
 env =gym.make( env_name, render_mode='human' if DISPLAY else 'rgb_array' )
 
-ENVIRONMENT = Environment(env, skip_frames=SKIP_ACTIONS, n_frames=N_FRAMES)
+ENVIRONMENT = Environment(env, skip_frames=SKIP_ACTIONS, n_frames=N_FRAMES, state_space=(4,84,84))
 # Create an agent
 agent = Agent(state_space=(4,84,84), action_space=4, 
-              model_name='32x64x64_breakout_model', gamma=.99,
+              model_name='32x64x64_breakout_no_priority', gamma=.99,
                batch_size=32, lr=5E-5)
 
 
@@ -45,7 +45,7 @@ for i in range(NUM_EPISODES):
     # re-set the environment
     ENVIRONMENT.reset()
     score = 0
-            
+    
     while not done:
          # Take only greedy action
         action = agent.choose_action(ENVIRONMENT.state(), train=False)
