@@ -2,7 +2,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import torch
 import numpy as np
 import random
-from replay_mem import  experience, ReplayBuffer_memory, PER_memory_buffer
+from replay_mem import  experience, replay_buffer, PER_replay_buffer
 from NeuralNet import Dueling_DQNnet, DQNnet
 import numpy as np
 import random
@@ -42,9 +42,9 @@ class Agent(object):
         
         # Initialize Replay Memory
         if(prioritized_replay):
-            self.memory = PER_memory_buffer(alfa=0.6) 
+            self.memory = PER_replay_buffer(alfa=0.6) 
         else:
-            self.memory = ReplayBuffer_memory() #ReplayBuffer()
+            self.memory = replay_buffer() #ReplayBuffer()
 
         # Initialise policy and target networks, set target network to eval mode
         self.policy_net = DQNnet(input_dim=state_space, out_dim=action_space, filename=model_name).to(self.device)
@@ -80,8 +80,8 @@ class Agent(object):
 
     def update_num_episodes(self):
         self.num_episodes += 1
-        # if(self.prioritized_replay):
-        #     self.memory.beta_annealing_schedule(self.num_episodes)
+        if(self.prioritized_replay):
+            self.memory.beta_annealing_schedule
 
 
     # Returns the greedy action according to the policy net
@@ -128,7 +128,7 @@ class Agent(object):
         if self.prioritized_replay:
             TD_errors = torch.abs(q_eval - q_target)
             # update memory 
-            self.memory.update_priorities( experiences.index , TD_errors.detach().cpu().numpy().flatten() + 1e-5)  
+            self.memory.update_priorities( experiences.index , TD_errors.detach().cpu().numpy().flatten())  
             # compute loss
             sampling_weights = (torch.Tensor(experiences.weight).view(-1,self.batch_size)).to(self.device)
             loss = torch.mean((TD_errors * sampling_weights)**2)
@@ -139,9 +139,9 @@ class Agent(object):
 
 
         # Perform backward propagation and optimization step
-        self.optim.zero_grad()
         loss.backward()
         self.optim.step()
+        self.optim.zero_grad()
 
         self.learn_counter += 1
 

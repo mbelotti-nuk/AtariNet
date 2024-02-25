@@ -1,6 +1,9 @@
 import numpy as np
 from collections import namedtuple
-experience = namedtuple('experience', ("state", "next_state", "action", "reward", "done"))
+from dataclasses import dataclass
+import torch
+
+
 # SumTree
 # a binary tree data structure where the parent’s value is the sum of its children
 class SumTree:
@@ -60,7 +63,14 @@ class SumTree:
     def get_leaf(self, s):
         leaf_index = self._retrieve(0, s)
         data_index = leaf_index - self.capacity + 1
-        return (leaf_index, self.tree[leaf_index], self.data[data_index])
+        return (leaf_index, self.tree[leaf_index], self._get_data(data_index))
+
+    def _get_data(self, index):
+        return [torch.tensor(self.data[index][0]),
+                torch.tensor(self.data[index][1]),
+                torch.tensor(self.data[index][2]),
+                torch.tensor(self.data[index][3]),
+                torch.tensor(self.data[index][4])]
 
     # find sample on leaf node
     def _retrieve(self, parent_index, s):
