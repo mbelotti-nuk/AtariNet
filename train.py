@@ -5,8 +5,7 @@ import gym
 from NET.transforms import Environment
 import numpy as np
 import gc
-import torch
-  
+import torch  
 
 # Specify environment location
 env_name = "ALE/Breakout-v5"
@@ -15,9 +14,9 @@ env_name = "ALE/Breakout-v5"
 EPS_START=1
 EPS_END=0.1
 EPS_FINAL = 0.01 
-N_OBSERVE_STEPS = 200 #50_000 
+N_OBSERVE_STEPS = 50_000 
 KNEE_STEP = 1_000_000 
-KNEE_FINAL_STEP = 22_000_000
+KNEE_FINAL_STEP = 5_000_000
 
 # specifications on environment
 DISPLAY = False
@@ -59,6 +58,7 @@ for episode in range(0, MAX_EPISODES):
 
     score = 0
     frame_count = 0
+    
 
     while not done:
 
@@ -88,6 +88,7 @@ for episode in range(0, MAX_EPISODES):
     mean_score = np.mean(scores[-100:])
 
     scores.append(score)
+
 
     if(episode%20 == 0):
         print(f'Episode {episode} Step {agent.learn_counter}: \n\tScore: {score}\n\tAvg score (past 100): {mean_score}\

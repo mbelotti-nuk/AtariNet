@@ -2,7 +2,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import torch
 import numpy as np
 import random
-from replay_mem import  experience, ReplayBuffer_memory, PER_memory_buffer
+from replay_mem import  experience, replay_buffer, PER_replay_buffer
 from NeuralNet import Dueling_DQNnet, DQNnet
 import numpy as np
 import random
@@ -15,7 +15,8 @@ class Agent(object):
     def __init__(self, state_space, action_space, 
                 model_name='breakout_model', gamma=0.99,
                 batch_size=32, lr=0.001,
-                prioritized_replay=True):
+                prioritized_replay=True,
+                dueling=False):
 
         self.state_space = state_space
         self.action_space = action_space
@@ -42,13 +43,18 @@ class Agent(object):
         
         # Initialize Replay Memory
         if(prioritized_replay):
-            self.memory = PER_memory_buffer(alfa=0.6) 
+            self.memory = PER_replay_buffer(alfa=0.6) 
         else:
-            self.memory = ReplayBuffer_memory() #ReplayBuffer()
+            self.memory = replay_buffer() #ReplayBuffer()
 
+        self.dueling = dueling
         # Initialise policy and target networks, set target network to eval mode
-        self.policy_net = DQNnet(input_dim=state_space, out_dim=action_space, filename=model_name).to(self.device)
-        self.target_net = DQNnet(input_dim=state_space, out_dim=action_space, filename=model_name+'target').to(self.device)
+        if dueling:
+            self.policy_net = Dueling_DQNnet(input_dim=state_space, out_dim=action_space, filename=model_name).to(self.device)
+            self.target_net = Dueling_DQNnet(input_dim=state_space, out_dim=action_space, filename=model_name+'target').to(self.device)
+        else:
+            self.policy_net = DQNnet(input_dim=state_space, out_dim=action_space, filename=model_name).to(self.device)
+            self.target_net = DQNnet(input_dim=state_space, out_dim=action_space, filename=model_name+'target').to(self.device)
         self.target_net.eval()
 
         # If pretrained model of the modelname already exists, load it
@@ -56,6 +62,7 @@ class Agent(object):
             self.policy_net.load_model()
             print('loaded pretrained model')
         except:
+            self.policy_net._initialize_weights()
             pass
         
         # Set target net to be the same as policy net
@@ -80,8 +87,8 @@ class Agent(object):
 
     def update_num_episodes(self):
         self.num_episodes += 1
-        # if(self.prioritized_replay):
-        #     self.memory.beta_annealing_schedule(self.num_episodes)
+        if(self.prioritized_replay):
+            self.memory.beta_annealing_schedule
 
 
     # Returns the greedy action according to the policy net
@@ -128,7 +135,7 @@ class Agent(object):
         if self.prioritized_replay:
             TD_errors = torch.abs(q_eval - q_target)
             # update memory 
-            self.memory.update_priorities( experiences.index , TD_errors.detach().cpu().numpy().flatten() + 1e-5)  
+            self.memory.update_priorities( experiences.index , TD_errors.detach().cpu().numpy().flatten())  
             # compute loss
             sampling_weights = (torch.Tensor(experiences.weight).view(-1,self.batch_size)).to(self.device)
             loss = torch.mean((TD_errors * sampling_weights)**2)
@@ -139,14 +146,18 @@ class Agent(object):
 
 
         # Perform backward propagation and optimization step
-        self.optim.zero_grad()
         loss.backward()
+        for param in self.policy_net.parameters():
+            param.grad.data.clamp_(-1, 1)
         self.optim.step()
+        self.optim.zero_grad()
 
         self.learn_counter += 1
 
         # sync target and policy networks
-        if self.learn_counter % self.sync_network_rate == 0 and self.learn_counter > 0:
+        # the update of the target is made with a frequency w.r.t. the number of steps done
+        # and not w.r.t. the number of parameters (==self.learn_counter)
+        if self.step_counter % self.sync_network_rate == 0 and self.learn_counter > 0:
             self.sync_networks()
 
         # Save model & decrement epsilon
@@ -155,9 +166,20 @@ class Agent(object):
     
     def agent_predictions(self, experience):
 
-        q_eval = self.policy_net(experience.state).gather(1, experience.action)
-        q_next = self.target_net(experience.next_state).detach().max(1)[0].unsqueeze(1)
-        q_target = (1-experience.done) * (experience.reward + self.GAMMA * q_next) + (experience.done * experience.reward)
+                # onlineQ_next = onlineQNetwork(batch_next_state)
+                # targetQ_next = targetQNetwork(batch_next_state)
+                # online_max_action = torch.argmax(onlineQ_next, dim=1, keepdim=True)
+                # y = batch_reward + (1 - batch_done) * GAMMA * targetQ_next.gather(1, online_max_action.long())
+    
+        if self.dueling:
+            q_eval = self.policy_net(experience.state)
+            q_next = self.target_net(experience.next_state)
+            action = torch.argmax(q_eval, dim=1, keepdim=True)
+            q_target = (1-experience.done) * (experience.reward + self.GAMMA * q_next.gather(1, action)) + (experience.done * experience.reward)
+        else:
+            q_eval = self.policy_net(experience.state).gather(1, experience.action)
+            q_next = self.target_net(experience.next_state).detach().max(1)[0].unsqueeze(1)
+            q_target = (1-experience.done) * (experience.reward + self.GAMMA * q_next) + (experience.done * experience.reward)
 
         return q_eval, q_target
 

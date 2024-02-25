@@ -1,5 +1,5 @@
 import random
-from collections import namedtuple, deque
+from collections import namedtuple
 import numpy as np
 import torch
 from utils import SumTree
@@ -10,46 +10,42 @@ experience = namedtuple('experience', ("state", "next_state", "action", "reward"
 per_experience = namedtuple('experience', ("state", "next_state", "action", "reward", "done", "index", "weight"))
 
 
-class PER_memory_buffer(object):  # stored as ( state, action, reward, next_state ) in SumTree
-    error_epsilon = 0.01  # Hyperparameter that we use to avoid some experiences to have 0 probability of being taken
-    
-    PER_b_increment_per_sampling = 0.001
-    
-    absolute_error_upper = 1.  # clipped abs error
 
-    def __init__(self, alfa, capacity=500_000):
+class PER_replay_buffer(object):  
+    error_epsilon = 0.01  
+
+    def __init__(self, alfa, capacity=600_000):
         # Making the tree 
         self.tree = SumTree(capacity)
         self._alfa = alfa
         self._beta = 0.4
-        self._beta_increment_per_sampling = 0.000005
+        self._beta_increment_per_sampling = 0.00001
         self.dtype = np.uint8
+        self.max_priority = 1
 
     @property
     def buffer_length(self):
         return self.tree.n_entries
 
     def add_experience(self, _experience:experience):
-        # Find the max priority
-        max_priority = np.max(self.tree.tree[-self.tree.capacity:])
-
         # transform to unit8
         _state = np.array(_experience.state*255, dtype = self.dtype)
-        _next_state = np.array(_experience.next_state*255, dtype=self.dtype)
+        # save only last frame
+        _next_state = np.array(_experience.next_state[-1]*255, dtype=self.dtype)
         # make torch tensors
-        new_experience = experience(state = torch.tensor(_state), 
-                                    next_state = torch.tensor(_next_state),
-                                    action = torch.tensor(_experience.action), 
-                                    reward = torch.tensor(_experience.reward), 
-                                    done = torch.tensor(_experience.done))
+        new_experience = experience(state =  _state, 
+                                    next_state = _next_state,
+                                    action = _experience.action, 
+                                    reward = _experience.reward, 
+                                    done =   _experience.done)
 
 
         # If the max priority = 0 we can't put priority = 0 since this experience will never have a chance to be selected
         # So we use a minimum priority
-        if max_priority == 0:
-            max_priority = self.absolute_error_upper
+        if self.max_priority == 0:
+            self.max_priority = self.absolute_error_upper
 
-        self.tree.add(max_priority, new_experience)   # set the max priority for new priority
+        self.tree.add(self.max_priority, new_experience)   # set the max priority for new priority
 
 
     def sample_batch(self, batch_size, device="cuda:0"):
@@ -72,8 +68,11 @@ class PER_memory_buffer(object):  # stored as ( state, action, reward, next_stat
             
             priorities.append(priority)
             batch_idx[i]= index
+
+            # re-construct next_state
+            _next_state = torch.cat(( data[0][1:,:,:], data[1].unsqueeze(0) ), dim=0)
             minibatch.append(experience(  state = data[0].unsqueeze(0).float().cuda()/255, 
-                                          next_state = data[1].unsqueeze(0).float().cuda()/255, 
+                                          next_state = _next_state.unsqueeze(0).float().cuda()/255, 
                                           action =  data[2].reshape(1).cuda(),
                                           reward =  data[3].reshape(1).cuda(),
                                           done =    data[4].reshape(1).cuda()))
@@ -93,9 +92,11 @@ class PER_memory_buffer(object):  # stored as ( state, action, reward, next_stat
         priorities_list = (np.abs(abs_errors) + self.error_epsilon) ** self._alfa
         for index, priority in zip(tree_idx, priorities_list):
             self.tree.update(idx=index, priority=priority)
+            self.max_priority = max(self.max_priority, priority)
 
-    def beta_annealing_schedule(self, num_episodes):
-        self._beta =  1 - np.exp(-1e-3 * num_episodes)
+    @property
+    def beta_annealing_schedule(self):
+        self._beta = min(1.0, self._beta + self._beta_increment_per_sampling )
 
     def _extract_tensors(self, experiences:List[experience], experience_index, weight) -> per_experience:
         # Convert batch of Experiences to Experience of batches
@@ -111,7 +112,7 @@ class PER_memory_buffer(object):  # stored as ( state, action, reward, next_stat
 
 
 # Memory which allows for storing and sampling batches of transitions
-class ReplayBuffer_memory(object):
+class replay_buffer(object):
     def __init__(self):
         self.replay_memory_size = 1_000_000
         self.buffer = np.empty(self.replay_memory_size, dtype = [("transition", transition)] )
@@ -183,7 +184,7 @@ class ReplayBuffer_memory(object):
 
 
 
-class ReplayBuffer_memory(object):
+class replay_buffer(object):
 
     # Memory replay with priorited experience replay
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

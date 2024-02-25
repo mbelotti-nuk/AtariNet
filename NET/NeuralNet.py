@@ -138,8 +138,22 @@ class DQNnet(nn.Module):
 
         return Q_value
 
-    # Save a model
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.trunc_normal_(m.weight, mean=0.0, std=1)
+                nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0.0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1.0)
+                nn.init.constant_(m.bias, 0.0)
+            elif isinstance(m, nn.Linear):
+                nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='relu')
+                nn.init.constant_(m.bias, 0.0)
 
+
+    # Save a model
     def save_model(self):
         with torch.no_grad():
             torch.save(self.state_dict(), 'NET/models/' + "DDQN_" +self.filename + '.pt')

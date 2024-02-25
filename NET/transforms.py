@@ -72,11 +72,11 @@ class Environment:
             self._next_state.append(state_)
 
 
-        # update reward when losing game
-        if info['lives'] < self._n_lifes:
-            reward += -2
-            # re-assign n_lifes
-            self._n_lifes = info['lives'] 
+        # # update reward when losing game
+        # if info['lives'] < self._n_lifes:
+        #     reward += -2
+        #     # re-assign n_lifes
+        #     self._n_lifes = info['lives'] 
 
         # clip reward
         reward = np.sign(reward)
