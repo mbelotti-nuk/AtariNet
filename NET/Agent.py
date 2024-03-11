@@ -2,11 +2,10 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import torch
 import numpy as np
 import random
-from replay_mem import  experience, ReplayBuffer_memory, PER_memory_buffer
+from replay_mem import  experience, replay_buffer, PER_replay_buffer
 from NeuralNet import Dueling_DQNnet, DQNnet
 import numpy as np
 import random
-from PIL import Image
 import matplotlib.pyplot as plt
 import os
 
@@ -15,17 +14,19 @@ class Agent(object):
     def __init__(self, state_space, action_space, 
                 model_name='breakout_model', gamma=0.99,
                 batch_size=32, lr=0.001,
-                prioritized_replay=True):
+                prioritized_replay=False,
+                dueling=False):
 
         self.state_space = state_space
         self.action_space = action_space
         # batch size for training the network
         self.batch_size = batch_size
          # After how many training iterations the target network should update
-        self.sync_network_rate = 4_000
+        self.sync_network_rate = 10_000
 
 
         self.GAMMA = gamma
+        self.TAU = 1e-3              # Soft update parameter for updating fixed q network
         # learning rate
         self.LR = lr
         
@@ -33,55 +34,74 @@ class Agent(object):
         self.step_counter = 0
         self.num_episodes = 0
 
-        self.save_interval = 40_000
-
         # Use GPU if available
-        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        if torch.cuda.is_available():
+            type_dev = "cuda:0"
+        elif torch.backends.mps.is_available():
+            type_dev = "mps:0"
+        else: 
+            type_dev = "cpu"
+        
+        self.device = torch.device(type_dev)
 
         self.prioritized_replay = prioritized_replay
         
         # Initialize Replay Memory
-        if(prioritized_replay):
-            self.memory = PER_memory_buffer(alfa=0.6) 
+        if(self.prioritized_replay):
+            self.memory = PER_replay_buffer(alfa=0.6) 
         else:
-            self.memory = ReplayBuffer_memory() #ReplayBuffer()
+            self.memory = replay_buffer() 
 
+        self.dueling = dueling
         # Initialise policy and target networks, set target network to eval mode
-        self.policy_net = DQNnet(input_dim=state_space, out_dim=action_space, filename=model_name).to(self.device)
-        self.target_net = DQNnet(input_dim=state_space, out_dim=action_space, filename=model_name+'target').to(self.device)
+        if dueling:
+            self.policy_net = Dueling_DQNnet(input_dim=state_space, out_dim=action_space, filename=model_name).to(self.device)
+            self.target_net = Dueling_DQNnet(input_dim=state_space, out_dim=action_space, filename=model_name+'target').to(self.device)
+        else:
+            self.policy_net = DQNnet(input_dim=state_space, out_dim=action_space, filename=model_name).to(self.device)
+            self.target_net = DQNnet(input_dim=state_space, out_dim=action_space, filename=model_name+'target').to(self.device)
         self.target_net.eval()
 
-        # If pretrained model of the modelname already exists, load it
-        try:
-            self.policy_net.load_model()
-            print('loaded pretrained model')
-        except:
-            pass
+
+        self.policy_net._initialize_weights()
+
         
         # Set target net to be the same as policy net
         self.sync_networks()
 
         # Set optimizer & loss function
         self.optim = torch.optim.Adam(self.policy_net.parameters(), lr=self.LR)
-        self.loss = torch.nn.HuberLoss() #torch.nn.MSELoss() #torch.nn.HuberLoss() #torch.nn.SmoothL1Loss()
+        self.loss = torch.nn.HuberLoss() 
 
 
     def define_epsilon_startegy(self, eps_start, eps_end, final_eps, 
-                                stee_start, step_kneep, step_final_knee):
+                                step_start, step_knee, step_final_knee):
         self.eps = 1
         # epsilon greedy startegy
-        self.eps_strategy = EpsilonScheduler(eps_start, eps_end, final_eps , 
-                                                        stee_start, step_kneep, step_final_knee)
+        self.eps_strategy = EpsilonScheduler(eps_start = eps_start, eps_end = eps_end, final_eps = final_eps , 
+                                            step_start = step_start, kneepoint = step_knee, final_knee_point = step_final_knee)
+
+
+    def load_net(self, path):
+        self.policy_net.load_model(path=path)
+
+    @property
+    def frame_counter(self):
+        return self.step_counter
 
     # Copies policy params to target net
-    def sync_networks(self):
-        self.target_net.load_state_dict(self.policy_net.state_dict())
+    def sync_networks(self, soft=False):
+        if soft:
+            for source_parameters, target_parameters in zip(self.policy_net.parameters(), self.target_net.parameters()):
+                target_parameters.data.copy_((1.0 - self.TAU)* source_parameters.data + self.TAU * target_parameters.data)
+        else:
+            self.target_net.load_state_dict(self.policy_net.state_dict())
 
 
     def update_num_episodes(self):
         self.num_episodes += 1
-        # if(self.prioritized_replay):
-        #     self.memory.beta_annealing_schedule(self.num_episodes)
+        if(self.prioritized_replay):
+            self.memory.beta_annealing_schedule
 
 
     # Returns the greedy action according to the policy net
@@ -120,7 +140,6 @@ class Agent(object):
             return 
 
         # Sample batch
-        # "state","next_state", "action", "reward", "done"
         experiences = self.memory.sample_batch(batch_size=self.batch_size, device=self.device)
         
         q_eval, q_target = self.agent_predictions(experiences)
@@ -128,7 +147,7 @@ class Agent(object):
         if self.prioritized_replay:
             TD_errors = torch.abs(q_eval - q_target)
             # update memory 
-            self.memory.update_priorities( experiences.index , TD_errors.detach().cpu().numpy().flatten() + 1e-5)  
+            self.memory.update_priorities( experiences.index , TD_errors.detach().cpu().numpy().flatten())  
             # compute loss
             sampling_weights = (torch.Tensor(experiences.weight).view(-1,self.batch_size)).to(self.device)
             loss = torch.mean((TD_errors * sampling_weights)**2)
@@ -139,34 +158,41 @@ class Agent(object):
 
 
         # Perform backward propagation and optimization step
-        self.optim.zero_grad()
         loss.backward()
+        # clip gradient norm
+        torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), 1.0)
         self.optim.step()
+        self.optim.zero_grad()
 
         self.learn_counter += 1
 
         # sync target and policy networks
-        if self.learn_counter % self.sync_network_rate == 0 and self.learn_counter > 0:
+        # the update of the target is made with a frequency w.r.t. the number of steps done
+        # and not w.r.t. the number of parameters (==self.learn_counter)
+        if self.step_counter % self.sync_network_rate == 0 and self.learn_counter > 0:
             self.sync_networks()
 
-        # Save model & decrement epsilon
-        if (self.learn_counter) % self.save_interval == 0:
-            self.policy_net.save_model()
+        # Save model
+        # if (self.learn_counter) % self.save_interval == 0:
+        #     self.policy_net.save_model()
     
     def agent_predictions(self, experience):
 
-        q_eval = self.policy_net(experience.state).gather(1, experience.action)
-        q_next = self.target_net(experience.next_state).detach().max(1)[0].unsqueeze(1)
-        q_target = (1-experience.done) * (experience.reward + self.GAMMA * q_next) + (experience.done * experience.reward)
+        if self.dueling:
+            q_eval = self.policy_net(experience.state)
+            q_next = self.target_net(experience.next_state)
+            # choose action with policy network
+            action = torch.argmax(q_eval, dim=1, keepdim=True)
+            # evaluate q_next with the action selected by policy network
+            q_target = (1-experience.done) * (experience.reward + self.GAMMA * q_next.gather(1, action).detach()) + (experience.done * experience.reward)
+            q_eval = q_eval.gather(1,experience.action)
+        else:
+            q_eval = self.policy_net(experience.state).gather(1, experience.action)
+            q_next = self.target_net(experience.next_state).detach().max(1)[0].unsqueeze(1)
+            q_target = (1-experience.done) * (experience.reward + self.GAMMA * q_next) + (experience.done * experience.reward)
 
         return q_eval, q_target
 
-    # Save gif of an episode starting num_transitions ago from memory
-    def save_gif(self, frames_raw):
-        frames = [Image.fromarray(image, mode='RGB')for image in frames_raw]
-        frame_one = frames[0]
-        frame_one.save("match.gif", format="GIF", append_images=frames,
-                save_all=True, duration=100, loop=0)
         
     def plot_results(self, scores, save_path=None):
         plt.plot(np.arange(1, len(scores)+1), scores, label = "Scores per game", color="blue")
@@ -182,8 +208,8 @@ class Agent(object):
 
 
 class EpsilonScheduler():
-    def __init__(self, eps_start, eps_end, final_eps = None, step_start = 50000, kneepoint=1000000, final_knee_point = None):
-    # compute epsilon in epsilon-greedy algorithm by linearly decrement
+    def __init__(self,  eps_start,  eps_end, final_eps = None, 
+                        step_start = 50_000, kneepoint=1_000_000, final_knee_point = 5_000_000):
         self.eps_start = eps_start
         self.eps_end = eps_end
         self.final_eps = final_eps
@@ -194,13 +220,12 @@ class EpsilonScheduler():
     def get_exploration_rate(self, current_step):
         if current_step < self.startpoint:
             return 1.
-        mid_seg = self.eps_end + \
-                   np.maximum(0, (1-self.eps_end)-(1-self.eps_end)/self.kneepoint * (current_step-self.startpoint))
-        if not self.final_eps:
-            return mid_seg
         else:
-            if self.final_eps and self.final_knee_point and (current_step<self.kneepoint):
-                return mid_seg
+            if current_step < self.kneepoint:
+                return self.eps_start - (current_step-self.startpoint) * (self.eps_start-self.eps_end)/(self.kneepoint-self.startpoint)
             else:
-                return self.final_eps + \
-                       (self.eps_end - self.final_eps)/(self.final_knee_point - self.kneepoint)*(self.final_knee_point - current_step)
+                if self.final_eps is None:
+                    return self.eps_end
+                else:
+                    epsilon = self.eps_end - (current_step-self.kneepoint) * (self.eps_end-self.final_eps)/(self.final_knee_point-self.kneepoint)
+                    return max(epsilon, self.final_eps)

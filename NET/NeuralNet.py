@@ -53,14 +53,14 @@ class Dueling_DQNnet(nn.Module):
     def _initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0.0)
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1.0)
                 nn.init.constant_(m.bias, 0.0)
             elif isinstance(m, nn.Linear):
-                nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='relu')
+                nn.init.xavier_uniform_(m.weight, gain=1)
                 nn.init.constant_(m.bias, 0.0)
 
     # Performs forward pass through the network, returns action values
@@ -138,12 +138,25 @@ class DQNnet(nn.Module):
 
         return Q_value
 
-    # Save a model
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0.0)
+            # elif isinstance(m, nn.BatchNorm2d):
+            #     nn.init.constant_(m.weight, 1.0)
+            #     nn.init.constant_(m.bias, 0.0)
+            elif isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight, gain=1)
+                nn.init.constant_(m.bias, 0.0)
 
+
+    # Save a model
     def save_model(self):
         with torch.no_grad():
             torch.save(self.state_dict(), 'NET/models/' + "DDQN_" +self.filename + '.pt')
 
     # Loads a model
-    def load_model(self):
-        self.load_state_dict(torch.load('NET/models/saved/DDQN_32x64x64_breakout_no_priority.pt'))
+    def load_model(self, path):
+        self.load_state_dict(torch.load(path)) #+ self.filename + '.pt')))
