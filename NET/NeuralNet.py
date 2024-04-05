@@ -111,7 +111,7 @@ class DQNnet(nn.Module):
         lin1_out_dim = 512
 
 
-        self.adv = nn.Sequential(
+        self.linear = nn.Sequential(
             nn.Linear(conv_out_dim, lin1_out_dim),
             nn.ReLU(),
             nn.Linear(lin1_out_dim, out_dim)
@@ -131,11 +131,7 @@ class DQNnet(nn.Module):
 
         x = self.convoluation_layer(x)
         x = x.view(x.shape[0], -1)
-    
-        adv = self.adv(x) 
-        
-        Q_value = adv
-
+        Q_value = self.linear(x) 
         return Q_value
 
     def _initialize_weights(self):
