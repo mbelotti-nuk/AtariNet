@@ -155,7 +155,7 @@ class Environment:
     def save_gif(self):
         frames = [Image.fromarray(image, mode='RGB')for image in self.frames]
         frame_one = frames[0]
-        frame_one.save("match.gif", format="GIF", append_images=frames,
+        frame_one.save("Results/match.gif", format="GIF", append_images=frames,
                 save_all=True, duration=100, loop=0)
 
 

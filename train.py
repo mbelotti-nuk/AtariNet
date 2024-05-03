@@ -1,14 +1,14 @@
 import sys
 sys.path.append("NET")
-from NET.agent import Agent
+from utils.Agent import Agent
 import gym
-from NET.game_environment import Environment
+from utils.game_environment import Environment
 import numpy as np
 import gc
 import torch  
 
 # Specify environment location
-env_name = "BreakoutNoFrameskip-v4" #"ALE/Breakout-v5"
+env_name = "BreakoutNoFrameskip-v4"
 
 # epsilon
 EPS_START=1
