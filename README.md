@@ -5,6 +5,6 @@ A match of a trained network can be seen here <br><br>
 <img src="https://github.com/mbelotti-nuk/AtariNet/blob/main/Results/match_speed_up.gif" width="300" height="400" />
 
 and the trend of scores during training <br><br>
-<img src="https://github.com/mbelotti-nuk/AtariNet/blob/main/Results/SCORES.png" width="500" height="400" />
+<img src="https://github.com/mbelotti-nuk/AtariNet/blob/main/Results/SCORES.png" width="550" height="400" />
 
 Considering a limited time for learning, the results are satisfactory.
