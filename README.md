@@ -2,3 +2,4 @@ This is a personal implementation of the Atari Net as introduced by DeepMind (ht
 Instead of using the various options present in the gym libraries (https://www.gymlibrary.dev/), I tried to implement all the features necessary for learning a Qnet.<br>
 
 A match of a trained network can be seen here<br>
+![](https://github.com/mbelotti-nuk/AtariNet/blob/main/Results/match_speed_up.gif)
